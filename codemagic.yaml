@@ -66,16 +66,27 @@ workflows:
 
       - name: Increment build number
         script: |
-          set -e
+          set -euo pipefail
           cd "$CM_BUILD_DIR"
-          LATEST="$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" --silent)"
+
+          # يفشل السكربت عند خطأ الاستعلام، أما أول رفع بلا builds سابقة فيبدأ من 1.
+          if ! LATEST="$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID")"; then
+            echo "Failed to query TestFlight build number. Check the App Store Connect integration and APP_STORE_APPLE_ID."
+            exit 1
+          fi
+
+          if [ -z "$LATEST" ]; then
+            echo "No previous TestFlight build found; using build number 1."
+            LATEST=0
+          fi
+
           case "$LATEST" in
-            ''|*[!0-9]*)
-              echo "Could not read a numeric TestFlight build number: $LATEST"
-              echo "For the first upload, create the app record and set an initial build number manually."
+            *[!0-9]*)
+              echo "Unexpected TestFlight build number: $LATEST"
               exit 1
               ;;
           esac
+
           agvtool new-version -all "$((LATEST + 1))"
 
       - name: Build IPA
