@@ -6,7 +6,7 @@ workflows:
     max_build_duration: 120
 
     integrations:
-      app_store_connect: YOUR_APP_STORE_CONNECT
+      app_store_connect: apple
 
     environment:
       xcode: latest
