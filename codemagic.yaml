@@ -42,16 +42,15 @@ workflows:
         script: |
           xcodegen generate
 
-      - name: Fetch signing files
+      - name: Set up code signing
         script: |
+          keychain initialize
+          SSH_KEY_PATH="$HOME/.ssh/id_rsa_codemagic"
+          ssh-keygen -t rsa -b 2048 -f "$SSH_KEY_PATH" -N ""
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create \
-            --certificate-key
-
-      - name: Configure signing
-        script: |
-          keychain initialize
+            --certificate-key "$SSH_KEY_PATH"
           keychain add-certificates
           xcode-project use-profiles
 
