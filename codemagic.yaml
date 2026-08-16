@@ -38,8 +38,10 @@ workflows:
           chmod +x Scripts/build-core.sh
           ./Scripts/build-core.sh
 
-      - name: Generate Xcode project
+      - name: Update Bundle Identifier and generate project
         script: |
+          sed -i '' 's/com.paopaolabs.location-spoofer/'"$BUNDLE_ID"'/g' project.yml || true
+          sed -i '' 's/com.paopaolabs.location-spoofer/'"$BUNDLE_ID"'/g' Config/App.xcconfig || true
           xcodegen generate
 
       - name: Set up code signing
@@ -61,15 +63,37 @@ workflows:
 
       - name: Build IPA
         script: |
+          mkdir -p build/ios/ipa
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          PROFILE_NAME=$(find "$PROFILES_DIR" -name "*.mobileprovision" -exec basename {} .mobileprovision \; | head -n 1)
+
+          cat <<EOF > export_options.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>$BUNDLE_ID</key>
+                  <string>$PROFILE_NAME</string>
+              </dict>
+          </dict>
+          </plist>
+          EOF
+
           xcodebuild -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
             -archivePath build/ios/xcarchive/app.xcarchive \
-            archive COMPILER_INDEX_STORE_ENABLE=NO
+            archive
 
           xcodebuild -exportArchive \
             -archivePath build/ios/xcarchive/app.xcarchive \
             -exportPath build/ios/ipa \
-            -exportOptionsPlist /Users/builder/export_options.plist || xcode-project build-ipa --project "$XCODE_PROJECT" --scheme "$XCODE_SCHEME" --verbose
+            -exportOptionsPlist export_options.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
