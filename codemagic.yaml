@@ -42,9 +42,10 @@ workflows:
           chmod +x Scripts/build-core.sh
           ./Scripts/build-core.sh
 
-      - name: Update Bundle Identifier everywhere and generate project
+      - name: Generate Xcode project
         script: |
-          find . -maxdepth 3 -type f \( -name "*.yml" -o -name "*.yaml" -o -name "*.xcconfig" -o -name "*.plist" \) -exec sed -i '' "s/com.paopaolabs.location-spoofer/$BUNDLE_ID/g" {} +
+          sed -i '' "s/com.paopaolabs.location-spoofer/$BUNDLE_ID/g" project.yml || true
+          sed -i '' "s/com.paopaolabs.location-spoofer/$BUNDLE_ID/g" Config/App.xcconfig || true
           xcodegen generate
 
       - name: Set up code signing
@@ -58,11 +59,51 @@ workflows:
           LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
           agvtool new-version -all $((LATEST + 1))
 
-      - name: Build IPA
+      - name: Archive App
         script: |
-          xcode-project build-ipa \
-            --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME"
+          mkdir -p build/ios
+
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -archivePath build/ios/app.xcarchive \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            CODE_SIGN_STYLE="Manual" \
+            archive
+
+      - name: Export IPA
+        script: |
+          mkdir -p build/ios/ipa
+
+          cat > exportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store-connect</string>
+              <key>teamID</key>
+              <string>$TEAM_ID</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Apple Distribution</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>$BUNDLE_ID</key>
+                  <string>locationspoofer_profile</string>
+              </dict>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/ios/app.xcarchive \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist exportOptions.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -74,4 +115,3 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
-ض
