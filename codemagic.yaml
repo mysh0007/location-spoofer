@@ -61,9 +61,15 @@ workflows:
 
       - name: Build IPA
         script: |
-          xcode-project build-ipa \
-            --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME"
+          xcodebuild -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -archivePath build/ios/xcarchive/app.xcarchive \
+            archive COMPILER_INDEX_STORE_ENABLE=NO
+
+          xcodebuild -exportArchive \
+            -archivePath build/ios/xcarchive/app.xcarchive \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist /Users/builder/export_options.plist || xcode-project build-ipa --project "$XCODE_PROJECT" --scheme "$XCODE_SCHEME" --verbose
 
     artifacts:
       - build/ios/ipa/*.ipa
