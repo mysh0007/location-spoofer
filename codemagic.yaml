@@ -16,7 +16,7 @@ workflows:
         TEAM_ID: "FXU58JA4KB"
         XCODE_PROJECT: "PaopaoLocationSpoofer.xcodeproj"
         XCODE_SCHEME: "PaopaoLocationSpoofer"
-        APP_STORE_APPLE_ID: "YOUR_APP_STORE_APPLE_ID"
+        APP_STORE_APPLE_ID: "6802081287"
 
     scripts:
       - name: Install dependencies
@@ -39,22 +39,30 @@ workflows:
           chmod +x Scripts/build-core.sh
           ./Scripts/build-core.sh
 
-      - name: Update Bundle Identifier and generate project
+      - name: Generate Xcode project
         script: |
-          sed -i '' 's/com.paopaolabs.location-spoofer/'"$BUNDLE_ID"'/g' project.yml || true
-          sed -i '' 's/com.paopaolabs.location-spoofer/'"$BUNDLE_ID"'/g' Config/App.xcconfig || true
+          sed -i '' "s/com.paopaolabs.location-spoofer/$BUNDLE_ID/g" project.yml || true
+          sed -i '' "s/com.paopaolabs.location-spoofer/$BUNDLE_ID/g" Config/App.xcconfig || true
           xcodegen generate
 
-      - name: Set up code signing
+      - name: Fetch signing files
         script: |
           keychain initialize
+
           SSH_KEY_PATH="$HOME/.ssh/id_rsa_codemagic"
+
           ssh-keygen -t rsa -b 2048 -f "$SSH_KEY_PATH" -N ""
+
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_STORE \
             --create \
             --certificate-key "$SSH_KEY_PATH"
+
           keychain add-certificates
+
+          echo "========== Installed Certificates =========="
+          security find-identity -v -p codesigning
+
           xcode-project use-profiles
 
       - name: Increment build number
@@ -62,43 +70,52 @@ workflows:
           LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
           agvtool new-version -all $((LATEST + 1))
 
-      - name: Build IPA
+      - name: Archive App
+        script: |
+          mkdir -p build/ios
+
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -archivePath build/ios/app.xcarchive \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            archive \
+            -allowProvisioningUpdates
+
+      - name: Export IPA
         script: |
           mkdir -p build/ios/ipa
-          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          PROFILE_NAME=$(find "$PROFILES_DIR" -name "*.mobileprovision" -exec basename {} .mobileprovision \; | head -n 1)
 
-          cat <<EOF > export_options.plist
+          cat > exportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>method</key>
-              <string>app-store-connect</string>
+              <string>app-store</string>
+
               <key>teamID</key>
               <string>$TEAM_ID</string>
+
               <key>signingStyle</key>
-              <string>manual</string>
-              <key>provisioningProfiles</key>
-              <dict>
-                  <key>$BUNDLE_ID</key>
-                  <string>$PROFILE_NAME</string>
-              </dict>
+              <string>automatic</string>
+
+              <key>destination</key>
+              <string>export</string>
+
+              <key>compileBitcode</key>
+              <false/>
           </dict>
           </plist>
           EOF
 
-          xcodebuild -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -archivePath build/ios/xcarchive/app.xcarchive \
-            archive \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE="Manual"
-
-          xcodebuild -exportArchive \
-            -archivePath build/ios/xcarchive/app.xcarchive \
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/ios/app.xcarchive \
             -exportPath build/ios/ipa \
-            -exportOptionsPlist export_options.plist
+            -exportOptionsPlist exportOptions.plist \
+            -allowProvisioningUpdates
 
     artifacts:
       - build/ios/ipa/*.ipa
