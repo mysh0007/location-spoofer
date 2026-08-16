@@ -10,6 +10,9 @@ workflows:
 
     environment:
       xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.meshal.locationspoofer
 
       vars:
         BUNDLE_ID: "com.meshal.locationspoofer"
@@ -45,24 +48,10 @@ workflows:
           sed -i '' "s/com.paopaolabs.location-spoofer/$BUNDLE_ID/g" Config/App.xcconfig || true
           xcodegen generate
 
-      - name: Fetch signing files
+      - name: Set up code signing
         script: |
           keychain initialize
-
-          SSH_KEY_PATH="$HOME/.ssh/id_rsa_codemagic"
-
-          ssh-keygen -t rsa -b 2048 -f "$SSH_KEY_PATH" -N ""
-
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create \
-            --certificate-key "$SSH_KEY_PATH"
-
           keychain add-certificates
-
-          echo "========== Installed Certificates =========="
-          security find-identity -v -p codesigning
-
           xcode-project use-profiles
 
       - name: Increment build number
@@ -80,12 +69,16 @@ workflows:
             -configuration Release \
             -archivePath build/ios/app.xcarchive \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            archive \
-            -allowProvisioningUpdates
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            CODE_SIGN_STYLE="Manual" \
+            archive
 
       - name: Export IPA
         script: |
           mkdir -p build/ios/ipa
+
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          PROFILE_NAME=$(find "$PROFILES_DIR" -name "*.mobileprovision" -exec basename {} .mobileprovision \; | head -n 1)
 
           cat > exportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -93,19 +86,18 @@ workflows:
           <plist version="1.0">
           <dict>
               <key>method</key>
-              <string>app-store</string>
-
+              <string>app-store-connect</string>
               <key>teamID</key>
               <string>$TEAM_ID</string>
-
               <key>signingStyle</key>
-              <string>automatic</string>
-
-              <key>destination</key>
-              <string>export</string>
-
-              <key>compileBitcode</key>
-              <false/>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Apple Distribution</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>$BUNDLE_ID</key>
+                  <string>$PROFILE_NAME</string>
+              </dict>
           </dict>
           </plist>
           EOF
@@ -114,8 +106,7 @@ workflows:
             -exportArchive \
             -archivePath build/ios/app.xcarchive \
             -exportPath build/ios/ipa \
-            -exportOptionsPlist exportOptions.plist \
-            -allowProvisioningUpdates
+            -exportOptionsPlist exportOptions.plist
 
     artifacts:
       - build/ios/ipa/*.ipa
